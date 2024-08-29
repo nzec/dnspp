@@ -55,7 +55,7 @@ struct dns_header {
   
   dns_header() = default;
 
-  dns_header(std::vector<uint8_t> bytes, size_t& offset) {
+  dns_header(std::vector<uint8_t> &bytes, size_t& offset) {
     id = from_big_endian(bytes.begin());
     flags = from_big_endian(bytes.begin() + 2);
     qdcount = from_big_endian(bytes.begin() + 4);
@@ -135,14 +135,14 @@ std::ostream& operator<<(std::ostream& os, const dns_record_type &dns_rec) {
   return os;
 }
 
-std::string decode_name(std::vector<uint8_t> bytes, size_t &offset);
+std::string decode_name(std::vector<uint8_t> &bytes, size_t &offset);
 
-std::string decode_compressed_name(uint8_t len, std::vector<uint8_t> bytes, size_t &offset) {
+std::string decode_compressed_name(uint8_t len, std::vector<uint8_t> &bytes, size_t &offset) {
   size_t pos = (static_cast<uint16_t>(len & 0b0011'0000) << 8) + bytes[offset++];
   return decode_name(bytes, pos);
 }
 
-std::string decode_name(std::vector<uint8_t> bytes, size_t &offset) {
+std::string decode_name(std::vector<uint8_t> &bytes, size_t &offset) {
   uint8_t len = 0;
   std::string domain;
   while ((len = bytes[offset++]) != 0) {
@@ -165,7 +165,7 @@ struct dns_record {
   std::vector<uint8_t> data;
 
   dns_record() = default;
-  dns_record(std::vector<uint8_t> bytes, size_t &offset) {
+  dns_record(std::vector<uint8_t> &bytes, size_t &offset) {
     name = decode_name(bytes, offset);
 
     type = static_cast<dns_record_type>(from_big_endian<uint16_t>(bytes, offset));
@@ -182,13 +182,13 @@ std::ostream& operator<<(std::ostream& os, const dns_record& record) {
        << "name: " << record.name << ", "
        << "type: " << record.type << ", "
        << "class_: " << record.class_ << ", "
-       << "ttl " << record.ttl << ", "
-       << "data " << std::dec
-       << (int) record.data[0] << " "
-       << (int) record.data[1] << " "
-       << (int) record.data[2] << " "
-       << (int) record.data[3] << " "
-       << " }";
+       << "ttl: " << record.ttl << ", "
+       << "rdlen: " << record.data.size() << ",\n"
+       << "  data: ";
+    for (size_t i = 0; i < record.data.size(); i++) {
+      os << std::dec << (int) record.data[i] << " ";
+    }
+    os << "\n}";
     return os;
 }
 
@@ -198,8 +198,10 @@ struct dns_question {
   uint16_t qclass;
 
   dns_question() = default;
+  dns_question(const std::string& name, dns_record_type type, uint16_t qclass) 
+    : qname(name), qtype(type), qclass(qclass) {}
 
-  dns_question(std::vector<uint8_t> bytes, size_t& offset) {
+  dns_question(std::vector<uint8_t> &bytes, size_t& offset) {
     uint8_t len = 0;
     int x = offset;
     while ((len = bytes[offset++]) != 0) {
@@ -249,18 +251,33 @@ std::uniform_int_distribution<uint16_t> dist(0, 65535);
 struct dns_packet {
   size_t offset = 0;
   dns_header header;
-  dns_question question;
-  std::vector<dns_record> records;
+  std::vector<dns_question> questions;
+  std::vector<dns_record> answers;
+  std::vector<dns_record> authorities;
+  std::vector<dns_record> additional;
 
   dns_packet(std::vector<uint8_t> bytes)
-    : offset(0), header(bytes, offset), question(bytes, offset) {
+    : offset(0), header(bytes, offset) {
       std::cout << header << "\n";
-      std::cout << question << "\n";
-      records.push_back(dns_record(bytes, offset));
-      std::cout << records[0] << "\n";
+      for (size_t i = 0; i < header.qdcount; i++) {
+        questions.push_back(dns_question(bytes, offset));
+        std::cout << questions[i] << "\n";
+      }
+      for (size_t i = 0; i < header.ancount; i++) {
+        answers.push_back(dns_record(bytes, offset));
+        std::cout << answers[i] << "\n";
+      }
+      for (size_t i = 0; i < header.nscount; i++) {
+        authorities.push_back(dns_record(bytes, offset));
+        std::cout << authorities[i] << "\n";
+      }
+      for (size_t i = 0; i < header.arcount; i++) {
+        additional.push_back(dns_record(bytes, offset));
+        std::cout << additional[i] << "\n";
+      }
   }
   
-  dns_packet(std::string domain_name, dns_record_type record_type) {
+  dns_packet(std::string domain_name, dns_record_type type) {
     header.id = dist(gen);
     header.flags = (1 << 8);
     header.qdcount = 1;
@@ -268,15 +285,13 @@ struct dns_packet {
     header.nscount = 0;
     header.arcount = 0;
 
-    question.qname = domain_name;
-    question.qtype = record_type;
-    question.qclass = 1;
+    questions.push_back(dns_question(domain_name, type, 1));
   }
 
   std::vector<uint8_t> to_bytes() const {
     std::vector<uint8_t> bytes;
     auto header_bytes = header.to_bytes();
-    auto question_bytes = question.to_bytes();
+    auto question_bytes = questions[0].to_bytes();
 
     bytes.insert(bytes.end(), header_bytes.begin(), header_bytes.end());
     bytes.insert(bytes.end(), question_bytes.begin(), question_bytes.end());

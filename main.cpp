@@ -4,8 +4,8 @@
 
 using asio::ip::udp;
 
-int main() {
-  dns_packet d("gmail.com.", dns_record_type::A);
+int main(int argc, char **argv) {
+  dns_packet d(argv[1], dns_record_type::AAAA);
   auto bytes = d.to_bytes();
 
   try {
@@ -15,6 +15,7 @@ int main() {
     udp::socket socket(io_context);
     socket.open(udp::v4());
 
+    hex_print(bytes);
     socket.send_to(asio::buffer(bytes, bytes.size()), endpoint);
 
     std::array<uint8_t, 1024> dns_response{};
