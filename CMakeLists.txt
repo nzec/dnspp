@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_BUILD_TYPE Debug)
 
 project(dnspp)
-add_executable(dnspp main.cpp)
+add_executable(dnspp main.cpp dns.hpp)
 
 option(ASIO_USE_CPM "Download Asio with CPM instead of FetchContent" OFF)
 option(
